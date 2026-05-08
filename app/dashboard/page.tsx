@@ -374,26 +374,38 @@ function DashboardOverview({ assets = [], transactions = [], user, currency = "U
   const validAssets = Array.isArray(assets) ? assets : [];
   const validTx = Array.isArray(transactions) ? transactions : [];
 
-  // MENGGUNAKAN GET ASSET VALUE DI OVERVIEW AGAR SINKRON
   const nw = validAssets.reduce((s: any, a: any) => s + getAssetValueUSD(a), 0);
   const income = validTx.filter((t: any) => t.type === "INCOME").reduce((s: any, t: any) => s + (t.amount || 0), 0);
   const expense = validTx.filter((t: any) => t.type === "EXPENSE").reduce((s: any, t: any) => s + (t.amount || 0), 0);
-  const totalNW = nw || 1;
   
   if (!user) return null; 
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20, marginBottom: 22 }}>
         <div>
           <p style={{ margin: "0 0 2px", fontSize: 13, color: C.muted }}>Welcome back,</p>
-          <p style={{ margin: 0, fontSize: 24, fontWeight: 900, color: C.text, letterSpacing: -0.5 }}>{user.name}</p>
+          <p style={{ margin: 0, fontSize: 24, fontWeight: 900, color: C.text, letterSpacing: -0.5, textTransform: "uppercase" }}>{user.name}</p>
         </div>
-        <div style={{ background: C.sageCard, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 14px", textAlign: "right" }}>
-          <p style={{ margin: 0, fontSize: 9, color: C.muted, letterSpacing: 2, textTransform: "uppercase" }}>Level</p>
-          <p style={{ margin: 0, fontSize: 18, fontWeight: 900, color: C.accent, fontFamily: C.mono }}>{user.level}</p>
+        
+        {/* kotak level baru yang melebar dan punya xp bar */}
+        <div style={{ flex: "1 1 250px", maxWidth: 400, background: C.sageCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 9, color: C.muted, letterSpacing: 2, textTransform: "uppercase", fontWeight: 700 }}>Current Rank</p>
+              <p style={{ margin: 0, fontSize: 20, fontWeight: 900, color: C.accent, fontFamily: C.mono }}>LVL {user.level}</p>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 800, fontFamily: C.mono, color: C.text }}>{user.totalXP} XP</p>
+              <p style={{ margin: 0, fontSize: 9, color: C.muted }}>NEXT: {user.nextXP}</p>
+            </div>
+          </div>
+          <div style={{ height: 6, background: C.surface, borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ width: `${user.progressPct}%`, height: "100%", background: C.accent, transition: "width 0.5s ease" }} />
+          </div>
         </div>
       </div>
+      
       <NetWorthHero assets={validAssets} currency={currency} />
       
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
@@ -1464,18 +1476,29 @@ function MilestonesModule({ milestones, setMilestones, transactions = [], budget
     let progressStr = isCountMetric(q.type) ? `${Math.floor(currentVal)} / ${Math.floor(target)}` : `${formatCurrency(currentVal, currency)} / ${formatCurrency(target, currency)}`;
 
     const isSurvival = cond === "<=" || cond === "<";
+    // tambahkan aturan: net savings wajib ditahan sampai waktu habis
+    const forceHold = q.type === "TX_NET_SAVINGS" || isSurvival;
 
     if (q.deadline) {
       const d = new Date(q.deadline); d.setHours(23,59,59);
       const isExpired = now > d.getTime();
 
-      if (isSurvival) {
+      if (forceHold) {
         if (isExpired) {
           if (isSuccess) { isClaimable = true; progressStr = "SURVIVED! READY TO CLAIM 🏆"; }
-          else { isSuccess = false; isFailed = true; progressStr = "FAILED 💀 (LIMIT BROKEN)"; }
+          else { isSuccess = false; isFailed = true; progressStr = "FAILED 💀 (TARGET MISSED)"; }
         } else {
-          if (isSuccess) { isClaimable = false; progressStr = `SURVIVING... (${progressStr})`; }
-          else { isSuccess = false; isFailed = true; progressStr = "FAILED 💀 (LIMIT BROKEN)"; }
+          if (isSuccess) { 
+            isClaimable = false; 
+            progressStr = isSurvival ? `SURVIVING... (${progressStr})` : `HOLDING TARGET... (${progressStr})`; 
+          }
+          else { 
+            if (isSurvival) {
+              isSuccess = false; isFailed = true; progressStr = "FAILED 💀 (LIMIT BROKEN)"; 
+            } else {
+              isClaimable = false; progressStr = `IN PROGRESS... (${progressStr})`;
+            }
+          }
         }
       } else {
         if (isSuccess) { isClaimable = true; progressStr = "TARGET HIT! READY TO CLAIM 🏆"; } 
@@ -2179,32 +2202,91 @@ const formatCurrency = (value: number, currency: string) => {
 };
 
 // Fungsi Pintar untuk Menghitung Level dari Total XP Milestone
-const calculateLevel = (milestones: any[], assets: any[]) => {
-  if (!milestones || !assets) return 1;
-
-  const currentNetWorth = assets.reduce((s: any, a: any) => s + (a.currentPrice || 0) * (a.quantity || 0), 0);
-  const currentCrypto = assets.filter((a:any) => a.assetClass === "CRYPTO").reduce((s: any, a: any) => s + (a.currentPrice || 0) * (a.quantity || 0), 0);
-  const currentStock = assets.filter((a:any) => a.assetClass === "STOCK").reduce((s: any, a: any) => s + (a.currentPrice || 0) * (a.quantity || 0), 0);
-  const currentGold = assets.filter((a:any) => a.assetClass === "COMMODITY").reduce((s: any, a: any) => s + (a.currentPrice || 0) * (a.quantity || 0), 0);
-
-  const getProgress = (type: string, target: number) => {
-    let current = 0;
-    if (type === "NET_WORTH") current = currentNetWorth;
-    if (type === "ASSET_CRYPTO") current = currentCrypto;
-    if (type === "ASSET_STOCK") current = currentStock;
-    if (type === "ASSET_GOLD") current = currentGold;
-    return Math.min(100, Math.round((current / target) * 100));
-  };
+const calculateLevel = (milestones: any[], assets: any[], transactions: any[]) => {
+  if (!milestones || milestones.length === 0) return { level: 1, totalXP: 0, progressPct: 0, nextXP: 1000 };
 
   let totalXP = 0;
-  milestones.forEach((m: any) => {
-    const progressPct = getProgress(m.type, m.targetValue);
-    if (progressPct >= 100 && m.trophy?.xpReward) {
-      totalXP += m.trophy.xpReward;
+  const now = new Date().getTime();
+
+  const getAssetValueUSD = (a: any) => {
+    if (a.assetClass === "CASH") return a.quantity / (typeof DYNAMIC_RATE !== "undefined" ? DYNAMIC_RATE : 17000);
+    return (a.currentPrice || 0) * (a.quantity || 0);
+  };
+
+  milestones.forEach((q: any) => {
+    if (q.isCompleted) {
+      totalXP += (q.xpReward || 0);
+      return;
     }
+
+    let currentVal = 0;
+    const tfDays = q.timeframe === "ALL" ? Infinity : Number(q.timeframe || 30);
+    const cutoffTime = now - (tfDays * 86400000);
+    const activeTx = transactions.filter((t: any) => new Date(t.date).getTime() >= cutoffTime);
+
+    if (q.type === "TX_EXPENSE_SUM") currentVal = activeTx.filter((t:any) => t.type === "EXPENSE" && (q.category ? t.category.toLowerCase() === q.category.toLowerCase() : true)).reduce((s:any, t:any) => s + t.amount, 0);
+    else if (q.type === "TX_INCOME_SUM") currentVal = activeTx.filter((t:any) => t.type === "INCOME" && (q.category ? t.category.toLowerCase() === q.category.toLowerCase() : true)).reduce((s:any, t:any) => s + t.amount, 0);
+    else if (q.type === "TX_EXPENSE_FREQ") currentVal = activeTx.filter((t:any) => t.type === "EXPENSE" && (q.category ? t.category.toLowerCase() === q.category.toLowerCase() : true)).length;
+    else if (q.type === "TX_NET_SAVINGS") {
+      const inc = activeTx.filter((t:any) => t.type === "INCOME").reduce((s:any, t:any) => s + t.amount, 0);
+      const exp = activeTx.filter((t:any) => t.type === "EXPENSE").reduce((s:any, t:any) => s + t.amount, 0);
+      currentVal = inc - exp;
+    } 
+    else if (q.type === "ASSET_VALUE_TOTAL") currentVal = assets.reduce((s:any, a:any) => s + getAssetValueUSD(a), 0);
+    else if (q.type === "ASSET_VALUE_SPECIFIC") {
+      const targetAssets = assets.filter((a:any) => a.assetClass === q.category || a.assetTicker === q.category);
+      currentVal = targetAssets.reduce((s:any, a:any) => s + getAssetValueUSD(a), 0);
+    } 
+    else if (q.type === "ASSET_PNL") {
+      const invested = assets.filter((a:any) => (q.category ? a.assetTicker === q.category : true) && a.averagePurchasePrice > 0 && a.assetClass !== "CASH");
+      const curVal = invested.reduce((s:any, a:any) => s + getAssetValueUSD(a), 0);
+      const cost = invested.reduce((s:any, a:any) => s + ((a.averagePurchasePrice || 0) * (a.quantity || 0)), 0);
+      currentVal = curVal - cost;
+    }
+    else if (q.type === "DIVERSIFICATION_TICKER") currentVal = new Set(assets.filter((a:any) => a.quantity > 0 && a.assetClass !== "CASH").map((a:any) => a.assetTicker)).size;
+    else if (q.type === "DIVERSIFICATION_CLASS") currentVal = new Set(assets.filter((a:any) => a.quantity > 0).map((a:any) => a.assetClass)).size;
+
+    const target = q.targetValue || 0;
+    const cond = q.condition || "<="; 
+    const EPSILON = 0.0001;
+    
+    let isSuccess = false; let isFailed = false;
+
+    if (cond === "<=") { isSuccess = currentVal <= target + EPSILON; isFailed = currentVal > target + EPSILON; } 
+    else if (cond === "<") { isSuccess = currentVal < target; isFailed = currentVal >= target; } 
+    else if (cond === ">=") { isSuccess = currentVal + EPSILON >= target; isFailed = currentVal + EPSILON < target; } 
+    else if (cond === ">") { isSuccess = currentVal > target; isFailed = currentVal <= target; }
+
+    const isSurvival = cond === "<=" || cond === "<";
+    const forceHold = q.type === "TX_NET_SAVINGS" || isSurvival;
+
+    if (q.deadline) {
+      const d = new Date(q.deadline); d.setHours(23,59,59);
+      const isExpired = now > d.getTime();
+
+      if (forceHold) {
+        if (isExpired) {
+          if (!isSuccess) { isSuccess = false; isFailed = true; }
+        } else {
+          if (isSurvival && !isSuccess) { isSuccess = false; isFailed = true; }
+          else { isSuccess = false; } // cegah xp cair duluan sebelum expired
+        }
+      } else {
+        if (!isSuccess && isExpired) { isFailed = true; }
+      }
+    }
+
+    if (isSuccess) totalXP += (q.xpReward || 0);
+    if (isFailed) totalXP -= (q.penalty || 0);
   });
 
-  return Math.floor(Math.sqrt(totalXP / 100)) + 1;
+  const displayXP = Math.max(0, totalXP);
+  const level = Math.floor(displayXP / 1000) + 1;
+  const currentLevelXP = displayXP % 1000;
+  const progressPct = (currentLevelXP / 1000) * 100;
+  const nextXP = level * 1000;
+
+  return { level, totalXP: displayXP, progressPct, nextXP };
 };
 
 const NAV = [
@@ -2369,7 +2451,10 @@ export default function DashboardPage() {
               <DashboardOverview 
                 assets={assets} 
                 transactions={filteredTransactions} 
-                user={{ name: user?.fullName || "User", level: calculateLevel(milestones, assets) }} 
+                user={{ 
+                  name: user?.fullName || "User", 
+                  ...calculateLevel(milestones, assets, transactions) 
+                }} 
                 currency={currency} 
               />
             </>
