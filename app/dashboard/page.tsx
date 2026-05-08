@@ -270,6 +270,106 @@ function NetWorthHero({ assets = [], currency = "USD" }: any) {
   );
 }
 
+
+function AssetAllocationChart({ assets, currency }: any) {
+  const [hovered, setHovered] = useState<any>(null);
+
+  // 1. Agregasi data aset
+  const allocationData = [
+    { label: "CRYPTO", cls: "CRYPTO", color: C.accent },
+    { label: "STOCKS", cls: "STOCK", color: C.gold },
+    { label: "COMMODITY", cls: "COMMODITY", color: C.sageDark },
+    { label: "CASH", cls: "CASH", color: C.success }
+  ].map(item => {
+    const value = assets
+      .filter((a: any) => a.assetClass === item.cls)
+      .reduce((s: any, a: any) => s + getAssetValueUSD(a), 0);
+    return { ...item, value };
+  }).filter(item => item.value > 0);
+
+  const totalValue = allocationData.reduce((s, item) => s + item.value, 0) || 1;
+  const cx = 120, cy = 120, r = 80;
+  const circumference = 2 * Math.PI * r;
+  let currentOffset = 0;
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 30 }}>
+      
+      {/* DONUT CHART SVG (Di Sebelah Kiri) */}
+      <div style={{ position: "relative", width: 240, height: 240, flexShrink: 0, margin: "0 auto" }}>
+        <svg width={240} height={240} viewBox="0 0 240 240" style={{ transform: "rotate(-90deg)", overflow: "visible" }}>
+          {allocationData.map((item, i) => {
+            const pct = item.value / totalValue;
+            const strokeDasharray = `${pct * circumference} ${circumference}`;
+            const strokeDashoffset = -currentOffset;
+            currentOffset += pct * circumference;
+            const isHovered = hovered?.label === item.label;
+
+            return (
+              <circle
+                key={item.label}
+                cx={cx} cy={cy} r={r}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={isHovered ? 35 : 25}
+                strokeDasharray={strokeDasharray}
+                strokeDashoffset={strokeDashoffset}
+                style={{ transition: "all 0.3s ease", cursor: "pointer", opacity: hovered ? (isHovered ? 1 : 0.2) : 1 }}
+                onMouseEnter={() => setHovered(item)}
+                onMouseLeave={() => setHovered(null)}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Info di tengah lingkaran */}
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <p style={{ margin: 0, fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>
+            {hovered ? hovered.label : "TOTAL ASSETS"}
+          </p>
+          <p style={{ margin: "2px 0 0", fontSize: 16, fontWeight: 900, color: C.text, fontFamily: C.mono }}>
+            {hovered 
+              ? Math.round((hovered.value / totalValue) * 100) + "%" 
+              : formatCurrency(totalValue, currency)}
+          </p>
+        </div>
+      </div>
+
+      {/* PANEL DETAIL (Di Sebelah Kanan, Muncul Saat Hover) */}
+      <div style={{ flex: 1, minWidth: 200 }}>
+        {hovered ? (
+          <div style={{ animation: "fadeIn 0.3s ease" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+              <div style={{ width: 14, height: 14, borderRadius: "50%", background: hovered.color }} />
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: C.text }}>{hovered.label}</h3>
+            </div>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+                <div style={{ background: C.surface, padding: 12, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                    <p style={{ margin: "0 0 4px", fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>Total Value</p>
+                    <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.text, fontFamily: C.mono }}>{formatCurrency(hovered.value, currency)}</p>
+                </div>
+            </div>
+            
+            <div style={{ marginTop: 12, background: C.surface, borderRadius: 6, height: 8, overflow: "hidden", border: `1px solid ${C.border}` }}>
+                <div style={{ height: "100%", width: `${Math.max(1, (hovered.value / totalValue) * 100)}%`, background: hovered.color, borderRadius: 6, transition: "width 0.5s ease" }} />
+            </div>
+            <p style={{ margin: "8px 0 0", fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>
+              {Math.round((hovered.value / totalValue) * 100)}% PORTFOLIO WEIGHT
+            </p>
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", color: C.muted, padding: "20px 0" }}>
+             <p style={{ margin: 0, fontSize: 13 }}>Arahkan kursor / sentuh grafik untuk melihat detail alokasi aset.</p>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
+
 function DashboardOverview({ assets = [], transactions = [], user, currency = "USD" }: any) {
   const validAssets = Array.isArray(assets) ? assets : [];
   const validTx = Array.isArray(transactions) ? transactions : [];
@@ -295,6 +395,7 @@ function DashboardOverview({ assets = [], transactions = [], user, currency = "U
         </div>
       </div>
       <NetWorthHero assets={validAssets} currency={currency} />
+      
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         {[["INCOME", income, C.success], ["EXPENSES", expense, C.danger]].map(([label, val, color]) => (
           <div key={label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
@@ -303,25 +404,12 @@ function DashboardOverview({ assets = [], transactions = [], user, currency = "U
           </div>
         ))}
       </div>
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 20px", marginBottom: 16 }}>
-        <p style={{ margin: "0 0 14px", fontSize: 9, color: C.muted, letterSpacing: 2, textTransform: "uppercase" }}>Allocation</p>
-        {[["CRYPTO", "CRYPTO", C.accent], ["STOCKS", "STOCK", C.gold], ["CASH", "CASH", C.success]].map(([label, cls, color]) => {
-          const pct = Math.round(validAssets.filter((a: any) => a.assetClass === cls).reduce((s: any, a: any) => s + getAssetValueUSD(a), 0) / totalNW * 100);
-          return (
-            <div key={label} style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 9, color: C.muted, letterSpacing: 2 }}>{label}</span>
-                <span style={{ fontSize: 11, color, fontWeight: 700, fontFamily: C.mono }}>{pct}%</span>
-              </div>
-              <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 16 }}>
-                {Array.from({ length: 32 }, (_, i) => (
-                  <div key={i} style={{ flex: 1, height: 5 + (i % 2) * 5, background: i / 32 < pct / 100 ? color : C.border, borderRadius: 1 }} />
-                ))}
-              </div>
-            </div>
-          );
-        })}
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: "20px", marginBottom: 16 }}>
+        <p style={{ margin: "0 0 20px", fontSize: 9, color: C.muted, letterSpacing: 2, textTransform: "uppercase" }}>Asset Allocation</p>
+        <AssetAllocationChart assets={validAssets} currency={currency} />
       </div>
+
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
         <p style={{ margin: 0, padding: "12px 18px", fontSize: 9, color: C.muted, letterSpacing: 2, textTransform: "uppercase", borderBottom: `1px solid ${C.border}` }}>Recent Transactions</p>
         {validTx.slice(0, 5).map((t: any, i: number) => (
