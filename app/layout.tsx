@@ -27,17 +27,42 @@ export default function RootLayout({
   return (
     <ClerkProvider 
       appearance={{ 
-        baseTheme: dark,
+        baseTheme: dark, // Wajib ada untuk mematikan mode terang bawaan
         variables: {
-          colorPrimary: '#C8FF00', 
-          colorBackground: '#161E19',
-          colorInputBackground: '#111713',
-          colorInputText: '#FFFFFF',
-          colorTextOnPrimaryBackground: '#000000',
-          colorText: '#FFFFFF', 
-          colorTextSecondary: '#9CA3AF', 
-        },
-        elements: {
+        colorBackground: '#161E19',
+        colorPrimary: '#C8FF00', 
+        colorDanger: '#E05A3A',
+        
+        // pakai nama variabel terbaru clerk:
+        colorForeground: '#FFFFFF',        // teks utama putih (pengganti colorText)
+        colorMutedForeground: '#FFFFFF',   // teks sub-judul/label putih (pengganti colorTextSecondary)
+        colorInputForeground: '#FFFFFF',   // teks dalam input putih (pengganti colorInputText)
+        colorPrimaryForeground: '#000000', // teks tombol primary hitam (pengganti colorTextOnPrimaryBackground)
+          },
+      elements: {
+
+
+          // --- FIX: USER PROFILE MODAL (MANAGE ACCOUNT) ---
+          profileSectionTitleText: { color: "#ffffff" },
+          profileSectionTitle: { borderBottom: "1px solid #2a3530" },
+          profileSectionPrimaryText: { color: "#ffffff" },
+          navbarButton: { color: "#9ca3af" },
+          navbarButton__active: { color: "#c8ff00" },
+          breadcrumbsItem: { color: "#ffffff" },
+          modalCloseButton: { color: "#ffffff" },
+          accordionTriggerButton: { color: "#ffffff" },
+         // teks panel kiri ("account", "manage your account info")
+          profilePageTitleText: { color: "#ffffff" },
+          profilePageSubtitleText: { color: "#8a9e7a" },
+
+          // teks panel kanan ("password", "active devices", dll)
+          profileSectionTitleText: { color: "#ffffff" },
+          profileSectionPrimaryText: { color: "#ffffff" },
+
+          // teks footer bawah ("secured by", "development mode")
+          footerActionText: { color: "#8a9e7a" },
+          badge: { color: "#ffffff", backgroundColor: "rgba(255, 255, 255, 0.1)", borderColor: "rgba(255, 255, 255, 0.1)" },
+
           headerTitle: { color: "#FFFFFF" },
           headerSubtitle: { color: "#9CA3AF" },
           

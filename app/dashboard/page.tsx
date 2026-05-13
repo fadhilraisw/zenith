@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserButton } from "@clerk/nextjs";
+import { dark } from "@clerk/themes";
 
 const C = {
   bg: "#0A0A0B",
@@ -805,6 +806,9 @@ function BudgetAllocationChart({ budgets, currency }: any) {
   let currentOffset = 0;
   const colors = [C.accent, C.gold, C.dangerLight, C.sageDark, C.success, "#A8B8A0", "#CD7F32", "#E5E4E2"];
 
+  // Ambil timeframe aktif dari budget pertama (untuk label info)
+  const activeTimeframe = budgets[0]?.activeTimeframe || "MONTHLY";
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 30, background: C.card, borderRadius: 16, padding: "24px", border: `1px solid ${C.border}`, marginBottom: 16, position: "relative" }}>
       
@@ -816,7 +820,8 @@ function BudgetAllocationChart({ budgets, currency }: any) {
             const strokeDasharray = `${pct * circumference} ${circumference}`;
             const strokeDashoffset = -currentOffset;
             currentOffset += pct * circumference;
-            const color = colors[i % colors.length];
+            // Jika budget bocor di timeframe manapun, ringnya otomatis merah
+            const color = b.isOverbudget ? C.danger : colors[i % colors.length];
             
             const isHovered = hovered?._id === b._id;
 
@@ -853,7 +858,7 @@ function BudgetAllocationChart({ budgets, currency }: any) {
         {hovered ? (
           <div style={{ animation: "fadeIn 0.3s ease" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-              <div style={{ width: 14, height: 14, borderRadius: "50%", background: colors[budgets.findIndex((x:any)=>x._id===hovered._id) % colors.length] }} />
+              <div style={{ width: 14, height: 14, borderRadius: "50%", background: hovered.isOverbudget ? C.danger : colors[budgets.findIndex((x:any)=>x._id===hovered._id) % colors.length] }} />
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: C.text }}>{hovered.category}</h3>
             </div>
             
@@ -864,15 +869,17 @@ function BudgetAllocationChart({ budgets, currency }: any) {
                 </div>
                 <div style={{ background: C.surface, padding: 12, borderRadius: 10, border: `1px solid ${C.border}` }}>
                     <p style={{ margin: "0 0 4px", fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>Spent So Far</p>
-                    <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: hovered.dynamicSpent > hovered.scaledTarget ? C.danger : C.text, fontFamily: C.mono }}>{formatCurrency(hovered.dynamicSpent, currency)}</p>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: hovered.isOverbudget ? C.danger : C.text, fontFamily: C.mono }}>{formatCurrency(hovered.dynamicSpent, currency)}</p>
                 </div>
             </div>
             
             <div style={{ marginTop: 12, background: C.surface, borderRadius: 6, height: 8, overflow: "hidden", border: `1px solid ${C.border}` }}>
-                <div style={{ height: "100%", width: `${Math.min(100, (hovered.dynamicSpent / hovered.scaledTarget) * 100)}%`, background: hovered.dynamicSpent > hovered.scaledTarget ? C.danger : C.accent, borderRadius: 6, transition: "width 0.5s ease" }} />
+                <div style={{ height: "100%", width: `${Math.min(100, (hovered.dynamicSpent / hovered.scaledTarget) * 100)}%`, background: hovered.isOverbudget ? C.danger : C.accent, borderRadius: 6, transition: "width 0.5s ease" }} />
             </div>
-            {hovered.dynamicSpent > hovered.scaledTarget && (
-              <p style={{ margin: "8px 0 0", fontSize: 10, color: C.danger, fontWeight: 700, letterSpacing: 1 }}>⚠ OVER BUDGET</p>
+            {hovered.isOverbudget && (
+              <p style={{ margin: "8px 0 0", fontSize: 10, color: C.danger, fontWeight: 700, letterSpacing: 1 }}>
+                ⚠ {hovered.dynamicSpent > hovered.scaledTarget ? "OVER BUDGET" : "LIMIT REACHED"} {hovered.overrunBy !== activeTimeframe ? `(AT ${hovered.overrunBy})` : ""}
+              </p>
             )}
           </div>
         ) : (
@@ -888,7 +895,8 @@ function BudgetAllocationChart({ budgets, currency }: any) {
 
 
 
-function BudgetsModule({ budgets, setBudgets, transactions, timeFrame, customRange, currency }: any) {
+// Ganti fungsi BudgetsModule di file kamu dari ujung sampai habis:
+function BudgetsModule({ budgets, setBudgets, transactions, allTransactions, timeFrame, customRange, currency }: any) {
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
@@ -898,79 +906,119 @@ function BudgetsModule({ budgets, setBudgets, transactions, timeFrame, customRan
 
   const inp = { background: C.surface, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, width: "100%", boxSizing: "border-box" as any };
   const validBudgets = Array.isArray(budgets) ? budgets : [];
-  const validTx = Array.isArray(transactions) ? transactions : []; // Transaksi yang SUDAH DIFILTER oleh timeframe
+  const validTx = Array.isArray(transactions) ? transactions : []; 
+  // Gunakan data mentah untuk meneropong ke masa lalu tanpa terhalang filter layar
+  const globalTx = Array.isArray(allTransactions) ? allTransactions : validTx; 
 
-  // MESIN MATEMATIKA: Skala Budget Dinamis
-  const getScaleMultiplier = (budgetPeriod: string, targetTimeFrame: string, customR: any) => {
-    // 1. Ubah periode default ke nilai per 1 hari
-    let dailyAmount = 1;
-    if (budgetPeriod === "DAILY") dailyAmount = 1;
-    else if (budgetPeriod === "WEEKLY") dailyAmount = 1 / 7;
-    else if (budgetPeriod === "MONTHLY") dailyAmount = 1 / 30; // Rata-rata 30 hari
-    else if (budgetPeriod === "YEARLY") dailyAmount = 1 / 365;
-
-    // 2. Kalikan dengan jumlah hari pada layar yang sedang dibuka user
-    let targetDays = 30; 
-    if (targetTimeFrame === "DAILY") targetDays = 1;
-    else if (targetTimeFrame === "WEEKLY") targetDays = 7;
-    else if (targetTimeFrame === "MONTHLY") targetDays = 30;
-    else if (targetTimeFrame === "YEARLY") targetDays = 365;
-    else if (targetTimeFrame === "CUSTOM" && customR?.start && customR?.end) {
-      targetDays = Math.max(1, (new Date(customR.end).getTime() - new Date(customR.start).getTime()) / 86400000 + 1);
-    }
-
-    return dailyAmount * targetDays;
+  // 1. Dapatkan base rate harian absolut
+  const getDailyRate = (budgetPeriod: string, targetAmount: number) => {
+    if (budgetPeriod === "DAILY") return targetAmount;
+    if (budgetPeriod === "WEEKLY") return targetAmount / 7;
+    if (budgetPeriod === "MONTHLY") return targetAmount / 30;
+    if (budgetPeriod === "YEARLY") return targetAmount / 365;
+    return targetAmount / 30;
   };
 
-  // MEMBUAT DATA BUDGET YANG SUDAH DI SKALA
-  const scaledBudgets = validBudgets.map((b: any) => {
-    const multiplier = getScaleMultiplier(b.period, timeFrame, customRange);
-    const scaledTarget = b.targetAmount * multiplier;
-    
-    // Tarik total spent REAL-TIME dari data transaksi (Hanya Expense + Kategori Cocok)
-    const dynamicSpent = validTx
-      .filter((t: any) => t.type === "EXPENSE" && t.category.toLowerCase() === b.category.toLowerCase())
-      .reduce((sum: number, t: any) => sum + t.amount, 0);
+  // 2. Mesin Evaluasi Cascading (Top-Down Virus Merah)
+  const evaluateCascadingStatus = (b: any, allTx: any[], currentTimeFrame: string, customR: any) => {
+    const dailyRate = getDailyRate(b.period, b.targetAmount);
+    const now = new Date();
 
-    return { ...b, scaledTarget, dynamicSpent };
+    // Alat untuk scan jumlah spent di rentang manapun
+    const getSpentFor = (tfType: string, start?: string, end?: string) => {
+       return allTx.filter((t: any) => {
+         if (t.type !== "EXPENSE" || t.category.toLowerCase() !== b.category.toLowerCase()) return false;
+         const d = new Date(t.date);
+         if (tfType === "DAILY") return d.toDateString() === now.toDateString();
+         if (tfType === "WEEKLY") { const w = new Date(); w.setDate(now.getDate() - 7); return d >= w; }
+         if (tfType === "MONTHLY") return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+         if (tfType === "YEARLY") return d.getFullYear() === now.getFullYear();
+         if (tfType === "CUSTOM" && start && end) return d >= new Date(start) && d <= new Date(end);
+         return true;
+       }).reduce((s: number, t: any) => s + t.amount, 0);
+    };
+
+    // Hari target untuk view yang dicolok user saat ini
+    let currentDays = 30;
+    if (currentTimeFrame === "DAILY") currentDays = 1;
+    else if (currentTimeFrame === "WEEKLY") currentDays = 7;
+    else if (currentTimeFrame === "MONTHLY") currentDays = 30;
+    else if (currentTimeFrame === "YEARLY") currentDays = 365;
+    else if (currentTimeFrame === "CUSTOM" && customR?.start && customR?.end) {
+      currentDays = Math.max(1, (new Date(customR.end).getTime() - new Date(customR.start).getTime()) / 86400000 + 1);
+    }
+
+    // Definisi Kasta (Dari Tertinggi ke Terendah)
+    const hierarchy = [
+      { type: "YEARLY", days: 365 },
+      { type: "MONTHLY", days: 30 },
+      { type: "WEEKLY", days: 7 },
+      { type: "DAILY", days: 1 }
+    ];
+
+    let cascadingOverrun = false;
+    let overrunBy = "";
+
+    // Pengecekan atas ke bawah
+    for (const h of hierarchy) {
+       if (h.days >= currentDays) {
+          const spent = getSpentFor(h.type);
+          const limit = dailyRate * h.days;
+          
+          // UBAH DISINI: pakai >= agar kalau budget pas 100% habis, bawahnya ikut ngunci
+          if (spent >= limit) {
+             cascadingOverrun = true;
+             overrunBy = h.type;
+             break; 
+          }
+       }
+    }
+
+    // Limit dan pengeluaran KHUSUS untuk VIEW/layar saat ini
+    const currentSpent = getSpentFor(currentTimeFrame, customR?.start, customR?.end);
+    const currentLimit = dailyRate * currentDays;
+    
+    // UBAH DISINI JUGA: pakai >=
+    const isLocallyOverrun = currentSpent >= currentLimit;
+
+    return {
+      scaledTarget: currentLimit,
+      dynamicSpent: currentSpent,
+      isOverbudget: cascadingOverrun || isLocallyOverrun,
+      overrunBy: cascadingOverrun ? overrunBy : (isLocallyOverrun ? currentTimeFrame : null)
+    };
+  };
+
+  // 3. Transformasi budget dengan status cascading
+  const scaledBudgets = validBudgets.map((b: any) => {
+    const evalData = evaluateCascadingStatus(b, globalTx, timeFrame, customRange);
+    return { ...b, scaledTarget: evalData.scaledTarget, dynamicSpent: evalData.dynamicSpent, isOverbudget: evalData.isOverbudget, overrunBy: evalData.overrunBy, activeTimeframe: timeFrame };
   });
 
   const totalTarget = scaledBudgets.reduce((s: any, b: any) => s + b.scaledTarget, 0);
   const totalSpent = scaledBudgets.reduce((s: any, b: any) => s + b.dynamicSpent, 0);
 
-  // Fungsi CRUD tetap sama
   const openEdit = (b: any) => {
-    setEditTarget(b);
-    setInputCurrency("USD");
-    setForm({ category: b.category, period: b.period, targetAmount: b.targetAmount.toString() });
-    setShowForm(true);
+    setEditTarget(b); setInputCurrency("USD"); setForm({ category: b.category, period: b.period, targetAmount: b.targetAmount.toString() }); setShowForm(true);
   };
+  const closeForm = () => { setShowForm(false); setEditTarget(null); setForm({ category: "", period: "MONTHLY", targetAmount: "" }); setInputCurrency("IDR"); };
 
   const handleSave = async () => {
     if (!form.category || !form.targetAmount) return;
     setIsSubmitting(true);
     const method = editTarget ? 'PUT' : 'POST';
     const url = editTarget ? `/api/budgets/${editTarget._id}` : '/api/budgets';
-
     const rawInput = Number(form.targetAmount);
     const finalTargetAmount = inputCurrency === "IDR" ? rawInput / DYNAMIC_RATE : rawInput;
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: form.category, targetAmount: finalTargetAmount, period: form.period })
-      });
+      const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: form.category, targetAmount: finalTargetAmount, period: form.period }) });
       if (response.ok) {
         const savedData = await response.json();
         setBudgets(editTarget ? validBudgets.map((b: any) => b._id === editTarget._id ? savedData : b) : [savedData, ...validBudgets]);
         closeForm();
       }
     } catch (error) { console.error(error); } finally { setIsSubmitting(false); }
-  };
-
-  const closeForm = () => {
-    setShowForm(false); setEditTarget(null); setForm({ category: "", period: "MONTHLY", targetAmount: "" }); setInputCurrency("IDR");
   };
 
   const handleDelete = async () => {
@@ -990,7 +1038,6 @@ function BudgetsModule({ budgets, setBudgets, transactions, timeFrame, customRan
         </button>
       </div>
 
-      {/* RENDER GRAFIK BARU DI SINI */}
       <BudgetAllocationChart budgets={scaledBudgets} currency={currency} />
 
       <div style={{ background: C.accent, borderRadius: 14, padding: "20px 22px 0", marginBottom: 16, overflow: "hidden" }}>
@@ -1038,11 +1085,14 @@ function BudgetsModule({ budgets, setBudgets, transactions, timeFrame, customRan
         </div>
       )}
 
-      {/* MENGGUNAKAN SCALED BUDGETS DI BAWAH SINI */}
       {scaledBudgets.map((b: any) => {
         const pct = Math.min(100, Math.round(((b.dynamicSpent || 0) / (b.scaledTarget || 1)) * 100));
+        const isRed = b.isOverbudget; 
+        const statusText = b.dynamicSpent > b.scaledTarget ? "OVER BUDGET" : "LIMIT REACHED";
+
         return (
           <div key={b._id} onClick={() => openEdit(b)} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 18px", marginBottom: 10, position: "relative", cursor: "pointer" }}>
+            {/* ... kode tombol delete dan info atas dibiarkan sama ... */}
             <button onClick={(e) => { e.stopPropagation(); setDeleteTarget(b); }} style={{ position: "absolute", right: -6, top: -6, width: 22, height: 22, borderRadius: "50%", background: C.danger, border: "none", color: "#fff", cursor: "pointer", zIndex: 10 }}>×</button>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
               <div>
@@ -1051,16 +1101,21 @@ function BudgetsModule({ budgets, setBudgets, transactions, timeFrame, customRan
               </div>
               <div style={{ textAlign: "right" }}>
                 <p style={{ margin: 0, fontSize: 11, color: C.muted }}>{formatCurrency(b.scaledTarget, currency)}</p>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: pct >= 100 ? C.danger : C.text }}>{formatCurrency(b.dynamicSpent || 0, currency)}</p>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: isRed ? C.danger : C.text }}>{formatCurrency(b.dynamicSpent || 0, currency)}</p>
               </div>
             </div>
             
             <div style={{ display: "flex", gap: 2, height: 24, alignItems: "flex-end" }}>
-              {Array.from({ length: 24 }).map((_, i) => (
-                <div key={i} style={{ flex: 1, height: 6 + (i % 3) * 4, background: (i / 24 < pct / 100) ? C.accent : C.border, borderRadius: 1 }} />
-              ))}
+              {Array.from({ length: 24 }).map((_, i) => {
+                 const isActive = (i / 24 < pct / 100) || (isRed && i === 0); 
+                 return <div key={i} style={{ flex: 1, height: 6 + (i % 3) * 4, background: isActive ? (isRed ? C.danger : C.accent) : C.border, borderRadius: 1 }} />;
+              })}
             </div>
-            {pct >= 100 && <p style={{ margin: "8px 0 0", fontSize: 9, color: C.danger, letterSpacing: 2, fontWeight: 700 }}>BUDGET OVERRUN</p>}
+            {isRed && (
+               <p style={{ margin: "8px 0 0", fontSize: 9, color: C.danger, letterSpacing: 2, fontWeight: 700 }}>
+                  ⚠ {statusText} {b.overrunBy !== timeFrame ? `(AT ${b.overrunBy})` : ""}
+               </p>
+            )}
           </div>
         );
       })}
@@ -2408,11 +2463,11 @@ export default function DashboardPage() {
 
         <div style={{ flex: 1 }} />
         
-        {/* Area Bawah: Currency Slider & User Profile */}
-        <div className="mt-auto mb-6 flex flex-col items-center lg:items-start lg:px-6 gap-5">
+        {/* area bawah: currency slider & user profile */}
+        <div className="mt-auto mb-10 flex flex-col items-center gap-6"> 
           
-          {/* Currency Toggle Slider */}
-          <div className="flex bg-[#1C2420] rounded-full p-1 border border-[#2A3530] w-[52px] lg:w-full mx-auto lg:mx-0">
+          {/* currency toggle slider */}
+          <div className="flex bg-[#1C2420] rounded-full p-1 border border-[#2A3530] w-[52px] lg:w-[180px] mx-auto">
             <button 
               onClick={() => setCurrency("USD")} 
               className={`flex-1 rounded-full text-[11px] font-black py-1.5 transition-all ${currency === "USD" ? "bg-[#C8FF00] text-black shadow-sm" : "text-[#5A6E60] hover:text-white"}`}
@@ -2429,14 +2484,28 @@ export default function DashboardPage() {
 
           {/* User Profile Clerk */}
           <div className="flex items-center gap-3">
-            <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: "w-9 h-9" } }} />
+              <UserButton 
+                afterSignOutUrl="/" 
+                appearance={{ 
+                  baseTheme: dark,
+                  elements: { 
+                    avatarBox: "w-9 h-9 lg:w-10 lg:h-10",
+                    cardBox: "border border-[#2a3530] rounded-xl shadow-2xl" 
+                  } 
+                }}
+                // ini kuncinya: paksa tema dark khusus untuk modal manage account
+                userProfileProps={{
+                  appearance: {
+                    baseTheme: dark
+                  }
+                }}
+              />
             <div className="hidden lg:flex flex-col text-left">
               <span className="text-xs text-[#E8EDE5] font-bold">My Account</span>
               <span className="text-[10px] text-[#5A6E60]">Settings & Logout</span>
             </div>
           </div>
         </div>
-
       </div>
 
       {/* 2. CENTER CONTENT (Lebar dinamis mengikuti layar) */}
@@ -2485,18 +2554,19 @@ export default function DashboardPage() {
 
           {active === "budgets" && (
             <>
-              {/* Tambahkan TimeFrameSelector di atas Budget */}
               <TimeFrameSelector selected={timeFrame} onChange={setTimeFrame} custom={customRange} setCustom={setCustomRange} />
               
               <BudgetsModule 
                 budgets={budgets} 
                 setBudgets={setBudgets} 
                 
-                // OPER DATA INI AGAR BUDGET BISA DIHITUNG DINAMIS
+                // Transaksi lokal untuk tampilan layar
                 transactions={filteredTransactions} 
+                // TRANSAKSI GLOBAL UNTUK CEK HIERARKI KASTA BUDGET
+                allTransactions={transactions} 
+
                 timeFrame={timeFrame}
                 customRange={customRange}
-                
                 currency={currency} 
               />
             </>
